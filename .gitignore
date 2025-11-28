@@ -1,0 +1,22 @@
+# Compiled binaries
+snake_game
+snake_game.exe
+*.exe
+*.o
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.a
+*.so
+*.dll
+
