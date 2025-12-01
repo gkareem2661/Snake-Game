@@ -1,5 +1,4 @@
 /*
- * Author: [Your Name/Group Member Name]
  * Functionality: Main entry point of the program. Initializes the game, runs the main loop, and handles cleanup.
  */
 
@@ -44,7 +43,6 @@ bool game_over = false;
 bool victory = false;
 
 /*
- * Author: [Your Name]
  * Functionality: Initializes ncurses and game settings.
  */
 void init_game() {
@@ -57,7 +55,6 @@ void init_game() {
 }
 
 /*
- * Author: [Your Name]
  * Functionality: Initializes the snake with length 3 at the center of the screen.
  */
 void init_snake() {
@@ -90,7 +87,6 @@ void init_snake() {
 }
 
 /*
- * Author: [Your Name]
  * Functionality: Draws the border around the snake pit (20x20 minimum).
  */
 void draw_border() {
@@ -114,7 +110,6 @@ void draw_border() {
 }
 
 /*
- * Author: [Your Name]
  * Functionality: Draws the snake on the screen.
  */
 void draw_snake() {
@@ -128,19 +123,36 @@ void draw_snake() {
 }
 
 /*
- * Author: [Your Name]
- * Functionality: Places food at a random location inside the playable area.
+ * Functionality: Checks if a point overlaps with the snake body.
+ */
+bool is_snake_position(int x, int y) {
+    for (int i = 0; i < snake.length; i++) {
+        if (snake.body[i].x == x && snake.body[i].y == y) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/*
+ * Functionality: Places food at a random location inside the playable area, avoiding snake body.
  */
 void place_food() {
-    srand(time(NULL));
-    // Place food inside border (avoid walls)
-    food.y = (rand() % (max_y - 2)) + 1;
-    food.x = (rand() % (max_x - 2)) + 1;
+    int attempts = 0;
+    int max_attempts = 100; // Prevent infinite loop
+    
+    do {
+        // Place food inside border (avoid walls)
+        food.y = (rand() % (max_y - 2)) + 1;
+        food.x = (rand() % (max_x - 2)) + 1;
+        attempts++;
+    } while (is_snake_position(food.x, food.y) && attempts < max_attempts);
+    
+    // If we couldn't find a spot, place it anyway (snake might be too long)
     mvaddch(food.y, food.x, '*');
 }
 
 /*
- * Author: [Your Name]
  * Functionality: Checks if snake collides with walls or itself. Returns true if collision detected.
  */
 bool check_collision() {
@@ -162,7 +174,6 @@ bool check_collision() {
 }
 
 /*
- * Author: [Your Name]
  * Functionality: Checks if snake has reached win condition (length = half perimeter).
  */
 bool check_win() {
@@ -170,7 +181,6 @@ bool check_win() {
 }
 
 /*
- * Author: [Your Name]
  * Functionality: Cleans up ncurses before exiting.
  */
 void cleanup_game() {
@@ -179,7 +189,6 @@ void cleanup_game() {
 }
 
 /*
- * Author: [Your Name]
  * Functionality: Updates snake position based on current direction.
  */
 void update_snake() {
@@ -218,12 +227,38 @@ void update_snake() {
 }
 
 /*
- * Author: [Your Name]
+ * Functionality: Displays a simple start screen and waits for user to press space.
+ */
+void show_start_screen() {
+    clear();
+    int center_y = max_y / 2;
+    int center_x = max_x / 2;
+    
+    mvprintw(center_y - 3, center_x - 10, "================");
+    mvprintw(center_y - 2, center_x - 10, "   SNAKE GAME   ");
+    mvprintw(center_y - 1, center_x - 10, "================");
+    mvprintw(center_y + 1, center_x - 15, "Use Arrow Keys to Move");
+    mvprintw(center_y + 2, center_x - 12, "Eat food (*) to grow");
+    mvprintw(center_y + 3, center_x - 15, "Win: Reach length %d", snake.max_length);
+    mvprintw(center_y + 5, center_x - 10, "Press SPACE to start");
+    mvprintw(center_y + 6, center_x - 8, "Press 'q' to quit");
+    
+    refresh();
+    
+    timeout(-1); // Blocking input
+    int ch;
+    while ((ch = getch()) != ' ' && ch != 'q' && ch != 'Q');
+    timeout(0); // Back to non-blocking
+}
+
+/*
  * Functionality: The main game loop handling input and updates.
  */
 void game_loop() {
     int ch;
     bool running = true;
+    int frame_count = 0;
+    int move_interval = 5; // Move snake every N frames (slows down movement)
 
     while (running && !game_over && !victory) {
         ch = getch();
@@ -248,21 +283,23 @@ void game_loop() {
                 break;
         }
 
-        // Update game state
-        update_snake();
-        
-        // Check collisions
-        if (check_collision()) {
-            game_over = true;
-            mvprintw(max_y / 2, max_x / 2 - 5, "GAME OVER!");
-            break;
-        }
-        
-        // Check win condition
-        if (check_win()) {
-            victory = true;
-            mvprintw(max_y / 2, max_x / 2 - 5, "YOU WIN!");
-            break;
+        // Update game state (move snake every N frames)
+        frame_count++;
+        if (frame_count >= move_interval) {
+            update_snake();
+            frame_count = 0;
+            
+            // Check collisions
+            if (check_collision()) {
+                game_over = true;
+                break;
+            }
+            
+            // Check win condition
+            if (check_win()) {
+                victory = true;
+                break;
+            }
         }
         
         // Draw everything
@@ -278,16 +315,31 @@ void game_loop() {
         usleep(DELAY); // Control game speed
     }
     
-    // Wait for quit key if game ended
-    if (game_over || victory) {
-        timeout(-1); // Blocking input
-        mvprintw(max_y / 2 + 1, max_x / 2 - 5, "Press 'q' to quit");
-        refresh();
-        while (getch() != 'q' && getch() != 'Q');
+    // Display game over or victory message
+    clear();
+    draw_border();
+    draw_snake();
+    
+    if (game_over) {
+        mvprintw(max_y / 2 - 1, max_x / 2 - 5, "GAME OVER!");
+        mvprintw(max_y / 2, max_x / 2 - 8, "Final Length: %d", snake.length);
+    } else if (victory) {
+        mvprintw(max_y / 2 - 1, max_x / 2 - 5, "YOU WIN!");
+        mvprintw(max_y / 2, max_x / 2 - 8, "Length: %d/%d", snake.length, snake.max_length);
     }
+    
+    mvprintw(max_y / 2 + 1, max_x / 2 - 8, "Press 'q' to quit");
+    refresh();
+    
+    // Wait for quit key if game ended
+    timeout(-1); // Blocking input
+    while ((ch = getch()) != 'q' && ch != 'Q');
 }
 
 int main() {
+    // Initialize random seed once
+    srand(time(NULL));
+    
     init_game();
     
     // Check if terminal is large enough
@@ -300,6 +352,9 @@ int main() {
     
     // Initialize snake
     init_snake();
+    
+    // Show start screen
+    show_start_screen();
     
     // Place initial food
     place_food();
