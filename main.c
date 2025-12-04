@@ -9,7 +9,7 @@
 #include <stdbool.h>
 
 // Game Constants
-#define DELAY 50000 // Microseconds for game loop delay (faster)
+#define DELAY 10000 // Microseconds for game loop delay ()
 #define MIN_ROWS 20
 #define MIN_COLS 20
 
@@ -284,8 +284,8 @@ void show_start_screen() {
     mvprintw(center_y - 2, center_x - 10, "   SNAKE GAME   ");
     mvprintw(center_y - 1, center_x - 10, "================");
     mvprintw(center_y + 1, center_x - 15, "Use Arrow Keys to Move");
-    mvprintw(center_y + 2, center_x - 12, "Eat food (♦) to grow");
-    mvprintw(center_y + 3, center_x - 15, "Win: Reach length %d", snake.max_length);
+    mvprintw(center_y + 2, center_x - 12, "Eat food to grow");
+    mvprintw(center_y + 3, center_x - 15, "To Win: Reach a length of %d", snake.max_length);
     mvprintw(center_y + 5, center_x - 10, "Press SPACE to start");
     mvprintw(center_y + 6, center_x - 8, "Press 'q' to quit");
     
