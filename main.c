@@ -1,7 +1,3 @@
-/*
- * Functionality: Main entry point of the program. Initializes the game, runs the main loop, and handles cleanup.
- */
-
 #include <ncurses.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -9,7 +5,7 @@
 #include <stdbool.h>
 
 // Game Constants
-#define DELAY 10000 // Microseconds for game loop delay ()
+#define DELAY 50000 // Microseconds for delay
 #define MIN_ROWS 20
 #define MIN_COLS 20
 
@@ -48,6 +44,12 @@ Snake snake;
 Point food;
 bool game_over = false;
 bool victory = false;
+// Game window
+WINDOW *game_win = NULL;
+int pit_height = 20; // playable area rows
+int pit_width = 40;  // playable area cols
+int win_start_y = 0;
+int win_start_x = 0;
 
 /*
  * Functionality: Initializes ncurses and game settings with color support.
@@ -80,31 +82,26 @@ void init_game() {
  * Functionality: Initializes the snake with length 3 at the center of the screen.
  */
 void init_snake() {
-    getmaxyx(stdscr, max_y, max_x);
-    
-    // Calculate playable area (inside border)
-    int pit_height = max_y - 2;  // -2 for top and bottom border
-    int pit_width = max_x - 2;   // -2 for left and right border
-    
+    // Use window-local coordinates (1..pit_height, 1..pit_width)
     // Calculate half perimeter for win condition
     int perimeter = 2 * (pit_height + pit_width);
     snake.max_length = perimeter / 2;
-    
+
     // Allocate memory for snake body (max possible length)
     snake.body = (Point *)malloc(snake.max_length * sizeof(Point));
-    
-    // Initialize snake with length 3 at center
+
+    // Initialize snake with length 3 at center of the pit
     snake.length = 3;
-    int center_y = max_y / 2;
-    int center_x = max_x / 2;
-    
+    int center_y = pit_height / 2 + 1; // local coords (1-based inside border)
+    int center_x = pit_width / 2 + 1;
+
     snake.body[0].y = center_y;
     snake.body[0].x = center_x;
     snake.body[1].y = center_y;
     snake.body[1].x = center_x - 1;
     snake.body[2].y = center_y;
     snake.body[2].x = center_x - 2;
-    
+
     snake.dir = RIGHT; // Initial direction
 }
 
@@ -112,30 +109,16 @@ void init_snake() {
  * Functionality: Draws the border around the snake pit (20x20 minimum) with color.
  */
 void draw_border() {
+    if (!game_win) return;
     if (has_colors()) {
-        attron(COLOR_PAIR(COLOR_BORDER));
+        wattron(game_win, COLOR_PAIR(COLOR_BORDER));
     }
-    
-    // Draw top and bottom borders with block characters
-    for (int x = 0; x < max_x; x++) {
-        mvaddch(0, x, ACS_HLINE);           // Top border
-        mvaddch(max_y - 1, x, ACS_HLINE);   // Bottom border
-    }
-    
-    // Draw left and right borders
-    for (int y = 0; y < max_y; y++) {
-        mvaddch(y, 0, ACS_VLINE);           // Left border
-        mvaddch(y, max_x - 1, ACS_VLINE);   // Right border
-    }
-    
-    // Draw corners
-    mvaddch(0, 0, ACS_ULCORNER);
-    mvaddch(0, max_x - 1, ACS_URCORNER);
-    mvaddch(max_y - 1, 0, ACS_LLCORNER);
-    mvaddch(max_y - 1, max_x - 1, ACS_LRCORNER);
-    
+
+    // Draw border around game window
+    wborder(game_win, 0,0,0,0,0,0,0,0);
+
     if (has_colors()) {
-        attroff(COLOR_PAIR(COLOR_BORDER));
+        wattroff(game_win, COLOR_PAIR(COLOR_BORDER));
     }
 }
 
@@ -143,24 +126,44 @@ void draw_border() {
  * Functionality: Draws the snake on the screen with larger characters and color.
  */
 void draw_snake() {
+    if (!game_win) return;
+
     // Draw head with larger block character
-    if (has_colors()) {
-        attron(COLOR_PAIR(COLOR_SNAKE_HEAD) | A_BOLD);
+    // Choose head glyph based on direction
+    chtype head_glyph = '>';
+    switch (snake.dir) {
+        case UP:
+            head_glyph = '^';
+            break;
+        case DOWN:
+            head_glyph = 'v';
+            break;
+        case LEFT:
+            head_glyph = '<';
+            break;
+        case RIGHT:
+        default:
+            head_glyph = '>';
+            break;
     }
-    mvaddch(snake.body[0].y, snake.body[0].x, ACS_CKBOARD); // Block character for head
+
     if (has_colors()) {
-        attroff(COLOR_PAIR(COLOR_SNAKE_HEAD) | A_BOLD);
+        wattron(game_win, COLOR_PAIR(COLOR_SNAKE_HEAD) | A_BOLD);
     }
-    
+    mvwaddch(game_win, snake.body[0].y, snake.body[0].x, head_glyph);
+    if (has_colors()) {
+        wattroff(game_win, COLOR_PAIR(COLOR_SNAKE_HEAD) | A_BOLD);
+    }
+
     // Draw body with block characters
     if (has_colors()) {
-        attron(COLOR_PAIR(COLOR_SNAKE_BODY));
+        wattron(game_win, COLOR_PAIR(COLOR_SNAKE_BODY));
     }
     for (int i = 1; i < snake.length; i++) {
-        mvaddch(snake.body[i].y, snake.body[i].x, ACS_BLOCK); // Solid block for body
+        mvwaddch(game_win, snake.body[i].y, snake.body[i].x, ACS_BLOCK);
     }
     if (has_colors()) {
-        attroff(COLOR_PAIR(COLOR_SNAKE_BODY));
+        wattroff(game_win, COLOR_PAIR(COLOR_SNAKE_BODY));
     }
 }
 
@@ -184,14 +187,12 @@ void place_food() {
     int max_attempts = 100; // Prevent infinite loop
     
     do {
-        // Place food inside border (avoid walls)
-        food.y = (rand() % (max_y - 2)) + 1;
-        food.x = (rand() % (max_x - 2)) + 1;
+        // Place food inside the pit (local window coords: 1..pit_height, 1..pit_width)
+        food.y = (rand() % pit_height) + 1;
+        food.x = (rand() % pit_width) + 1;
         attempts++;
     } while (is_snake_position(food.x, food.y) && attempts < max_attempts);
     
-    // If we couldn't find a spot, place it anyway (snake might be too long)
-    // Food will be drawn in game_loop with color
 }
 
 /*
@@ -199,9 +200,9 @@ void place_food() {
  */
 bool check_collision() {
     Point head = snake.body[0];
-    
-    // Check wall collision
-    if (head.x <= 0 || head.x >= max_x - 1 || head.y <= 0 || head.y >= max_y - 1) {
+
+    // Check wall collision in window-local coords (valid range: 1..pit_width / 1..pit_height)
+    if (head.x <= 0 || head.x > pit_width || head.y <= 0 || head.y > pit_height) {
         return true;
     }
     
@@ -227,6 +228,10 @@ bool check_win() {
  */
 void cleanup_game() {
     free(snake.body); // Free allocated memory
+    if (game_win) {
+        delwin(game_win);
+        game_win = NULL;
+    }
     endwin(); // End ncurses mode
 }
 
@@ -353,34 +358,41 @@ void game_loop() {
         }
         
         // Draw everything
+        // Clear both stdscr and game window
         clear();
+        if (game_win) werase(game_win);
+
         draw_border();
         draw_snake();
-        
-        // Draw food with larger character and color
-        if (has_colors()) {
-            attron(COLOR_PAIR(COLOR_FOOD) | A_BOLD);
+
+        // Draw food with larger character and color inside window
+        if (game_win) {
+            if (has_colors()) {
+                wattron(game_win, COLOR_PAIR(COLOR_FOOD) | A_BOLD);
+            }
+            mvwaddch(game_win, food.y, food.x, ACS_DIAMOND);
+            if (has_colors()) {
+                wattroff(game_win, COLOR_PAIR(COLOR_FOOD) | A_BOLD);
+            }
         }
-        mvaddch(food.y, food.x, ACS_DIAMOND); // Diamond character for food
-        if (has_colors()) {
-            attroff(COLOR_PAIR(COLOR_FOOD) | A_BOLD);
-        }
-        
-        // Display score/length with color
+
+        // Display score/length with color on stdscr (above the window)
         if (has_colors()) {
             attron(COLOR_PAIR(COLOR_TEXT));
         }
-        mvprintw(0, 2, "Length: %d/%d", snake.length, snake.max_length);
+        mvprintw(win_start_y - 1, win_start_x, "Length: %d/%d", snake.length, snake.max_length);
         if (has_colors()) {
             attroff(COLOR_PAIR(COLOR_TEXT));
         }
-        
-        refresh(); // Refresh the screen
+
+        // Refresh windows
+        if (game_win) wrefresh(game_win);
         usleep(DELAY); // Control game speed
     }
     
     // Display game over or victory message
     clear();
+    if (game_win) werase(game_win);
     draw_border();
     draw_snake();
     
@@ -401,6 +413,7 @@ void game_loop() {
     if (has_colors()) {
         attroff(COLOR_PAIR(COLOR_TEXT) | A_BOLD);
     }
+    if (game_win) wrefresh(game_win);
     refresh();
     
     // Wait for quit key if game ended
@@ -414,14 +427,21 @@ int main() {
     
     init_game();
     
-    // Check if terminal is large enough
+    // Check if terminal is large enough and create centered small game window
     getmaxyx(stdscr, max_y, max_x);
-    if (max_y < MIN_ROWS + 2 || max_x < MIN_COLS + 2) {
+    // Require a bit of padding around window for messages
+    if (max_y < pit_height + 4 || max_x < pit_width + 4) {
         endwin();
-        printf("Terminal too small! Need at least %dx%d\n", MIN_ROWS + 2, MIN_COLS + 2);
+        printf("Terminal too small! Need at least %dx%d (including borders)\n", pit_height + 2, pit_width + 2);
         return 1;
     }
-    
+
+    // Center the game window
+    win_start_y = (max_y - (pit_height + 2)) / 2;
+    win_start_x = (max_x - (pit_width + 2)) / 2;
+    game_win = newwin(pit_height + 2, pit_width + 2, win_start_y, win_start_x);
+    keypad(game_win, TRUE);
+
     // Initialize snake
     init_snake();
     
