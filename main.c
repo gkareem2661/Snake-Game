@@ -9,9 +9,16 @@
 #include <stdbool.h>
 
 // Game Constants
-#define DELAY 100000 // Microseconds for game loop delay
+#define DELAY 50000 // Microseconds for game loop delay (faster)
 #define MIN_ROWS 20
 #define MIN_COLS 20
+
+// Color pairs
+#define COLOR_SNAKE_HEAD 1
+#define COLOR_SNAKE_BODY 2
+#define COLOR_FOOD 3
+#define COLOR_BORDER 4
+#define COLOR_TEXT 5
 
 // Directions
 typedef enum {
@@ -43,7 +50,7 @@ bool game_over = false;
 bool victory = false;
 
 /*
- * Functionality: Initializes ncurses and game settings.
+ * Functionality: Initializes ncurses and game settings with color support.
  */
 void init_game() {
     initscr();              // Start ncurses mode
@@ -52,6 +59,21 @@ void init_game() {
     keypad(stdscr, TRUE);   // Enable function keys (arrows)
     curs_set(0);            // Hide cursor
     timeout(0);             // Non-blocking getch
+    
+    // Initialize colors if terminal supports it
+    if (has_colors()) {
+        start_color();
+        // Green snake head
+        init_pair(COLOR_SNAKE_HEAD, COLOR_GREEN, COLOR_BLACK);
+        // Bright green snake body
+        init_pair(COLOR_SNAKE_BODY, COLOR_GREEN, COLOR_BLACK);
+        // Red food
+        init_pair(COLOR_FOOD, COLOR_RED, COLOR_BLACK);
+        // Cyan border
+        init_pair(COLOR_BORDER, COLOR_CYAN, COLOR_BLACK);
+        // Yellow text
+        init_pair(COLOR_TEXT, COLOR_YELLOW, COLOR_BLACK);
+    }
 }
 
 /*
@@ -87,38 +109,58 @@ void init_snake() {
 }
 
 /*
- * Functionality: Draws the border around the snake pit (20x20 minimum).
+ * Functionality: Draws the border around the snake pit (20x20 minimum) with color.
  */
 void draw_border() {
-    // Draw top and bottom borders
+    if (has_colors()) {
+        attron(COLOR_PAIR(COLOR_BORDER));
+    }
+    
+    // Draw top and bottom borders with block characters
     for (int x = 0; x < max_x; x++) {
-        mvaddch(0, x, '-');           // Top border
-        mvaddch(max_y - 1, x, '-');   // Bottom border
+        mvaddch(0, x, ACS_HLINE);           // Top border
+        mvaddch(max_y - 1, x, ACS_HLINE);   // Bottom border
     }
     
     // Draw left and right borders
     for (int y = 0; y < max_y; y++) {
-        mvaddch(y, 0, '|');           // Left border
-        mvaddch(y, max_x - 1, '|');   // Right border
+        mvaddch(y, 0, ACS_VLINE);           // Left border
+        mvaddch(y, max_x - 1, ACS_VLINE);   // Right border
     }
     
     // Draw corners
-    mvaddch(0, 0, '+');
-    mvaddch(0, max_x - 1, '+');
-    mvaddch(max_y - 1, 0, '+');
-    mvaddch(max_y - 1, max_x - 1, '+');
+    mvaddch(0, 0, ACS_ULCORNER);
+    mvaddch(0, max_x - 1, ACS_URCORNER);
+    mvaddch(max_y - 1, 0, ACS_LLCORNER);
+    mvaddch(max_y - 1, max_x - 1, ACS_LRCORNER);
+    
+    if (has_colors()) {
+        attroff(COLOR_PAIR(COLOR_BORDER));
+    }
 }
 
 /*
- * Functionality: Draws the snake on the screen.
+ * Functionality: Draws the snake on the screen with larger characters and color.
  */
 void draw_snake() {
-    // Draw head
-    mvaddch(snake.body[0].y, snake.body[0].x, '@');
+    // Draw head with larger block character
+    if (has_colors()) {
+        attron(COLOR_PAIR(COLOR_SNAKE_HEAD) | A_BOLD);
+    }
+    mvaddch(snake.body[0].y, snake.body[0].x, ACS_CKBOARD); // Block character for head
+    if (has_colors()) {
+        attroff(COLOR_PAIR(COLOR_SNAKE_HEAD) | A_BOLD);
+    }
     
-    // Draw body
+    // Draw body with block characters
+    if (has_colors()) {
+        attron(COLOR_PAIR(COLOR_SNAKE_BODY));
+    }
     for (int i = 1; i < snake.length; i++) {
-        mvaddch(snake.body[i].y, snake.body[i].x, 'o');
+        mvaddch(snake.body[i].y, snake.body[i].x, ACS_BLOCK); // Solid block for body
+    }
+    if (has_colors()) {
+        attroff(COLOR_PAIR(COLOR_SNAKE_BODY));
     }
 }
 
@@ -149,7 +191,7 @@ void place_food() {
     } while (is_snake_position(food.x, food.y) && attempts < max_attempts);
     
     // If we couldn't find a spot, place it anyway (snake might be too long)
-    mvaddch(food.y, food.x, '*');
+    // Food will be drawn in game_loop with color
 }
 
 /*
@@ -234,14 +276,22 @@ void show_start_screen() {
     int center_y = max_y / 2;
     int center_x = max_x / 2;
     
+    if (has_colors()) {
+        attron(COLOR_PAIR(COLOR_TEXT) | A_BOLD);
+    }
+    
     mvprintw(center_y - 3, center_x - 10, "================");
     mvprintw(center_y - 2, center_x - 10, "   SNAKE GAME   ");
     mvprintw(center_y - 1, center_x - 10, "================");
     mvprintw(center_y + 1, center_x - 15, "Use Arrow Keys to Move");
-    mvprintw(center_y + 2, center_x - 12, "Eat food (*) to grow");
+    mvprintw(center_y + 2, center_x - 12, "Eat food (♦) to grow");
     mvprintw(center_y + 3, center_x - 15, "Win: Reach length %d", snake.max_length);
     mvprintw(center_y + 5, center_x - 10, "Press SPACE to start");
     mvprintw(center_y + 6, center_x - 8, "Press 'q' to quit");
+    
+    if (has_colors()) {
+        attroff(COLOR_PAIR(COLOR_TEXT) | A_BOLD);
+    }
     
     refresh();
     
@@ -258,7 +308,7 @@ void game_loop() {
     int ch;
     bool running = true;
     int frame_count = 0;
-    int move_interval = 5; // Move snake every N frames (slows down movement)
+    int move_interval = 2; // Move snake every N frames (faster movement)
 
     while (running && !game_over && !victory) {
         ch = getch();
@@ -306,10 +356,24 @@ void game_loop() {
         clear();
         draw_border();
         draw_snake();
-        mvaddch(food.y, food.x, '*');
         
-        // Display score/length
+        // Draw food with larger character and color
+        if (has_colors()) {
+            attron(COLOR_PAIR(COLOR_FOOD) | A_BOLD);
+        }
+        mvaddch(food.y, food.x, ACS_DIAMOND); // Diamond character for food
+        if (has_colors()) {
+            attroff(COLOR_PAIR(COLOR_FOOD) | A_BOLD);
+        }
+        
+        // Display score/length with color
+        if (has_colors()) {
+            attron(COLOR_PAIR(COLOR_TEXT));
+        }
         mvprintw(0, 2, "Length: %d/%d", snake.length, snake.max_length);
+        if (has_colors()) {
+            attroff(COLOR_PAIR(COLOR_TEXT));
+        }
         
         refresh(); // Refresh the screen
         usleep(DELAY); // Control game speed
@@ -320,6 +384,10 @@ void game_loop() {
     draw_border();
     draw_snake();
     
+    if (has_colors()) {
+        attron(COLOR_PAIR(COLOR_TEXT) | A_BOLD);
+    }
+    
     if (game_over) {
         mvprintw(max_y / 2 - 1, max_x / 2 - 5, "GAME OVER!");
         mvprintw(max_y / 2, max_x / 2 - 8, "Final Length: %d", snake.length);
@@ -329,6 +397,10 @@ void game_loop() {
     }
     
     mvprintw(max_y / 2 + 1, max_x / 2 - 8, "Press 'q' to quit");
+    
+    if (has_colors()) {
+        attroff(COLOR_PAIR(COLOR_TEXT) | A_BOLD);
+    }
     refresh();
     
     // Wait for quit key if game ended
